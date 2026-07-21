@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Aether v2 – Continuous Conversation State Engine</title>
+  <title>Aether v2 – Spoken Replies Guaranteed</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -15,8 +15,7 @@
       overflow: hidden;
     }
     .left-panel {
-      flex: 1 1 60%;
-      display: flex; flex-direction: column;
+      flex: 1 1 60%; display: flex; flex-direction: column;
       border-right: 1px solid #333; background: #16213e;
     }
     .pipeline {
@@ -32,16 +31,19 @@
       flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.5rem;
       background: #0f0f1a;
     }
-    .message {
-      max-width: 80%; padding: 0.7rem 1rem; border-radius: 1rem; line-height: 1.4; word-wrap: break-word;
-    }
+    .message { max-width: 80%; padding: 0.7rem 1rem; border-radius: 1rem; line-height: 1.4; word-wrap: break-word; }
     .user-msg { align-self: flex-end; background: #0f3460; }
-    .assistant-msg { align-self: flex-start; background: #533483; }
+    .assistant-msg { align-self: flex-start; background: #533483; position: relative; }
     .speaker-label {
       font-size: 0.7rem; font-weight: bold; margin-bottom: 0.2rem;
       display: flex; align-items: center; gap: 0.3rem;
     }
     .speaker-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .speak-btn {
+      background: transparent; border: none; color: #ffbb33; cursor: pointer; font-size: 0.9rem;
+      margin-left: 0.5rem; vertical-align: middle;
+    }
+    .speak-btn:hover { color: white; }
     .input-area {
       padding: 1rem; border-top: 1px solid #333;
       display: flex; flex-direction: column; align-items: center; gap: 0.8rem;
@@ -68,9 +70,7 @@
     .confidence-bar {
       width: 100%; height: 12px; background: #333; border-radius: 6px; overflow: hidden; margin: 0.5rem 0;
     }
-    .confidence-fill {
-      height: 100%; background: #e94560; transition: width 0.1s;
-    }
+    .confidence-fill { height: 100%; background: #e94560; transition: width 0.1s; }
     .text-input-row { display: flex; gap: 0.5rem; width: 100%; }
     #userTextInput {
       flex: 1; padding: 0.7rem; border-radius: 8px; border: none; background: #0f3460; color: white;
@@ -87,9 +87,7 @@
       flex: 1 1 40%; background: #1a1a2e; display: flex; flex-direction: column; overflow-y: auto; padding: 1rem;
     }
     .panel-title { font-size: 1.2rem; margin-bottom: 1rem; color: #e94560; font-weight: bold; }
-    .state-section {
-      background: #16213e; border-radius: 12px; padding: 1rem; margin-bottom: 1rem;
-    }
+    .state-section { background: #16213e; border-radius: 12px; padding: 1rem; margin-bottom: 1rem; }
     .state-row { display: flex; justify-content: space-between; margin-bottom: 0.5rem; }
     .state-label { font-weight: bold; color: #ccc; }
     .state-value { font-family: monospace; background: #0f3460; padding: 0.2rem 0.5rem; border-radius: 4px; }
@@ -113,7 +111,6 @@
 </head>
 <body>
   <div class="left-panel">
-    <!-- Pipeline Visualisation -->
     <div class="pipeline" id="pipeline">
       <div class="pipeline-stage" id="stageProfiler"><div class="stage-dot"></div> Acoustic Profiler</div>
       <span class="stage-arrow">→</span>
@@ -128,20 +125,20 @@
 
     <div class="input-area">
       <div class="mode-toggle">
-        <label style="color:#e94560;"><input type="radio" name="interactionMode" value="voice" checked> 🎤 Continuous Voice</label>
-        <label><input type="radio" name="interactionMode" value="text"> ⌨️ Text</label>
+        <label style="color:#e94560;"><input type="radio" name="interactionMode" value="text" checked> ⌨️ Text (with speech)</label>
+        <label><input type="radio" name="interactionMode" value="voice"> 🎤 Continuous Voice</label>
       </div>
-      <div id="voiceUI" style="text-align: center;">
-        <button class="mic-button" id="micButton">🎤</button>
-        <div class="mic-status" id="micStatus">Tap to start live session</div>
-        <div class="confidence-bar"><div class="confidence-fill" id="confidenceFill" style="width:0%;"></div></div>
-        <div style="font-size:0.8rem; color:#aaa;">Live confidence: <span id="liveConfidence">--</span>%</div>
-      </div>
-      <div id="textUI" style="display:none; width:100%;">
+      <div id="textUI" style="width:100%;">
         <div class="text-input-row">
           <input type="text" id="userTextInput" placeholder="Type message..." />
           <button id="sendBtn">Send</button>
         </div>
+      </div>
+      <div id="voiceUI" style="display:none; text-align: center;">
+        <button class="mic-button" id="micButton">🎤</button>
+        <div class="mic-status" id="micStatus">Tap to start live session</div>
+        <div class="confidence-bar"><div class="confidence-fill" id="confidenceFill" style="width:0%;"></div></div>
+        <div style="font-size:0.8rem; color:#aaa;">Live confidence: <span id="liveConfidence">--</span>%</div>
       </div>
       <details style="width:100%; margin-top:0.5rem;">
         <summary style="cursor:pointer; color:#aaa;">⚙️ Simulation & Settings</summary>
@@ -193,7 +190,6 @@
     </div>
   </div>
 
-  <!-- Documentation Overlay -->
   <div id="docsOverlay" class="docs-overlay" style="display:none;">
     <div class="docs-content" id="docsText">Loading...</div>
     <button class="close-btn" id="closeDocsBtn">✕</button>
@@ -201,7 +197,6 @@
 
   <script>
     (function() {
-      // ====================== CONSTANTS ======================
       const CONFIDENCE = { HIGH: 0.8, MEDIUM: 0.5 };
       const TRANSITION_TABLE = {
         IDLE:             { ACOUSTIC_OBSERVATION: 'ACTIVE',    USER_INTENT: null, RESET: 'IDLE' },
@@ -210,7 +205,6 @@
         COLLECTING_NAME:  { ACOUSTIC_OBSERVATION: null,        USER_INTENT: 'COLLECTING_NAME', RESET: 'IDLE' }
       };
 
-      // ====================== REGISTRIES ======================
       let participantRegistry = new Map();
       let voiceRegistry = new Map();
       participantRegistry.set('p1', { id: 'p1', name: 'Alex', color: '#e94560' });
@@ -218,31 +212,26 @@
       voiceRegistry.set('voice_001', 'p1');
       voiceRegistry.set('voice_002', 'p2');
 
-      // ====================== SESSION ======================
       let session = {
         currentState: 'IDLE', previousState: null,
         activeSpeaker: null, pendingParticipant: null,
         lastObservation: null, decision: null,
         transitionHistory: [],
-        confidenceWindow: []   // rolling confidence values
+        confidenceWindow: []
       };
 
-      // ====================== UI STATE ======================
+      let lastSpokenText = ''; // avoid spamming TTS
+
       const uiState = {
-        mode: 'voice',
+        mode: 'text',   // default to text so user can immediately type and hear speech
         isMicActive: false,
-        audioContext: null,
-        stream: null,
-        analyser: null,
-        animationId: null,
+        audioContext: null, stream: null, analyser: null, animationId: null,
         simulatedSpeaker: 'alex',
         autoCycle: false
       };
 
-      // ====================== HELPER ======================
       function createDecision(type, payload = null) { return { type, payload }; }
 
-      // ====================== PURE CSE (with cumulative confidence) ======================
       function transition(session, event, participants, voices) {
         const newSession = { ...session };
         newSession.previousState = session.currentState;
@@ -266,12 +255,10 @@
           case 'ACOUSTIC_OBSERVATION': {
             const { voiceProfile, confidence } = event.payload;
             newSession.lastObservation = { voiceProfile, confidence };
-            // Maintain rolling confidence window
             const window = [...session.confidenceWindow, confidence].slice(-10);
             newSession.confidenceWindow = window;
             const avgConf = window.reduce((a,b)=>a+b,0)/window.length;
 
-            // Decision based on cumulative confidence and voice profile
             if (avgConf >= CONFIDENCE.HIGH) {
               const participantId = newVoices.get(voiceProfile);
               if (participantId) {
@@ -279,34 +266,30 @@
                 newSession.currentState = 'ACTIVE';
                 newSession.pendingParticipant = null;
                 decision = createDecision('CONTINUE');
-                emittedEvents.push(`Cumulative confidence high (${avgConf.toFixed(2)}). Speaker: ${participants.get(participantId).name}.`);
+                emittedEvents.push(`High cumulative confidence. Speaker: ${participants.get(participantId).name}.`);
               } else {
-                // High confidence but unknown voice – could be new participant or unlinked voice
                 newSession.pendingParticipant = { voiceProfile, status: 'AWAITING_VERIFICATION' };
                 newSession.currentState = 'VERIFYING';
                 decision = createDecision('REQUEST_VERIFICATION');
-                emittedEvents.push(`High confidence but unknown voice (${voiceProfile}). Verification required.`);
+                emittedEvents.push(`Unknown voice. Verification required.`);
               }
             } else if (avgConf >= CONFIDENCE.MEDIUM) {
-              // Medium cumulative confidence – stay uncertain
-              if (session.currentState === 'VERIFYING' || session.currentState === 'COLLECTING_NAME') {
-                // already verifying, don't change
-                decision = createDecision('CONTINUE');
-              } else {
+              if (session.currentState !== 'VERIFYING' && session.currentState !== 'COLLECTING_NAME') {
                 newSession.pendingParticipant = { voiceProfile, status: 'AWAITING_VERIFICATION' };
                 newSession.currentState = 'VERIFYING';
                 decision = createDecision('REQUEST_VERIFICATION');
-                emittedEvents.push(`Medium cumulative confidence (${avgConf.toFixed(2)}). Verification requested.`);
+                emittedEvents.push(`Medium confidence. Verification requested.`);
+              } else {
+                decision = createDecision('CONTINUE');
               }
             } else {
-              // Low cumulative confidence
-              if (session.currentState === 'VERIFYING' || session.currentState === 'COLLECTING_NAME') {
-                decision = createDecision('CONTINUE');
-              } else {
+              if (session.currentState !== 'VERIFYING' && session.currentState !== 'COLLECTING_NAME') {
                 newSession.pendingParticipant = { voiceProfile, status: 'AWAITING_VERIFICATION' };
                 newSession.currentState = 'VERIFYING';
                 decision = createDecision('REQUEST_VERIFICATION');
-                emittedEvents.push(`Low cumulative confidence (${avgConf.toFixed(2)}). Verification required.`);
+                emittedEvents.push(`Low confidence. Verification requested.`);
+              } else {
+                decision = createDecision('CONTINUE');
               }
             }
             break;
@@ -317,26 +300,23 @@
             if (newSession.currentState === 'VERIFYING' && intent.verificationResult) {
               if (intent.verificationResult === 'NEW_PARTICIPANT') {
                 if (intent.name) {
-                  // Name provided directly (e.g., "This is Sarah")
                   const name = intent.name;
                   const newId = `p${Date.now()}`;
                   const newParticipant = { id: newId, name, color: randomColor() };
                   newParticipants.set(newId, newParticipant);
-                  const voiceProfile = newSession.pendingParticipant.voiceProfile;
-                  newVoices.set(voiceProfile, newId);
+                  newVoices.set(newSession.pendingParticipant.voiceProfile, newId);
                   registriesChanged = true;
                   newSession.activeSpeaker = newId;
                   newSession.pendingParticipant = null;
                   newSession.currentState = 'ACTIVE';
                   decision = createDecision('CREATE_PARTICIPANT', { participantId: newId });
-                  emittedEvents.push(`New participant '${name}' created directly from verification.`);
+                  emittedEvents.push(`New participant '${name}' created.`);
                 } else {
                   newSession.currentState = 'COLLECTING_NAME';
                   newSession.pendingParticipant.status = 'AWAITING_NAME';
                   decision = createDecision('REQUEST_NAME');
-                  emittedEvents.push('New participant confirmed. Asking for name.');
                 }
-              } else { // SAME_PARTICIPANT
+              } else {
                 const voice = newSession.pendingParticipant?.voiceProfile;
                 const existingId = voice ? newVoices.get(voice) : null;
                 if (existingId) {
@@ -344,31 +324,22 @@
                   newSession.pendingParticipant = null;
                   newSession.currentState = 'ACTIVE';
                   decision = createDecision('RESUME');
-                  emittedEvents.push(`Voice matched ${participants.get(existingId).name}. Resuming.`);
-                } else {
-                  // Could match by name if provided
-                  if (intent.participantName) {
-                    const found = [...participants.values()].find(p => p.name.toLowerCase() === intent.participantName.toLowerCase());
-                    if (found) {
-                      newVoices.set(newSession.pendingParticipant.voiceProfile, found.id);
-                      registriesChanged = true;
-                      newSession.activeSpeaker = found.id;
-                      newSession.pendingParticipant = null;
-                      newSession.currentState = 'ACTIVE';
-                      decision = createDecision('RESUME');
-                      emittedEvents.push(`Voice linked to existing participant ${found.name} by name.`);
-                    } else {
-                      newSession.currentState = 'COLLECTING_NAME';
-                      newSession.pendingParticipant.status = 'AWAITING_NAME';
-                      decision = createDecision('REQUEST_NAME');
-                      emittedEvents.push('Participant name not found. Asking for name.');
-                    }
+                } else if (intent.participantName) {
+                  const found = [...participants.values()].find(p => p.name.toLowerCase() === intent.participantName.toLowerCase());
+                  if (found) {
+                    newVoices.set(voice, found.id);
+                    registriesChanged = true;
+                    newSession.activeSpeaker = found.id;
+                    newSession.pendingParticipant = null;
+                    newSession.currentState = 'ACTIVE';
+                    decision = createDecision('RESUME');
                   } else {
                     newSession.currentState = 'COLLECTING_NAME';
-                    newSession.pendingParticipant.status = 'AWAITING_NAME';
                     decision = createDecision('REQUEST_NAME');
-                    emittedEvents.push('Could not match voice. Requesting name.');
                   }
+                } else {
+                  newSession.currentState = 'COLLECTING_NAME';
+                  decision = createDecision('REQUEST_NAME');
                 }
               }
             } else if (newSession.currentState === 'COLLECTING_NAME' && intent.name) {
@@ -376,17 +347,14 @@
               const newId = `p${Date.now()}`;
               const newParticipant = { id: newId, name, color: randomColor() };
               newParticipants.set(newId, newParticipant);
-              const voiceProfile = newSession.pendingParticipant.voiceProfile;
-              newVoices.set(voiceProfile, newId);
+              newVoices.set(newSession.pendingParticipant.voiceProfile, newId);
               registriesChanged = true;
               newSession.activeSpeaker = newId;
               newSession.pendingParticipant = null;
               newSession.currentState = 'ACTIVE';
               decision = createDecision('CREATE_PARTICIPANT', { participantId: newId });
-              emittedEvents.push(`New participant '${name}' created.`);
             } else if (newSession.currentState === 'ACTIVE' || newSession.currentState === 'IDLE') {
               decision = createDecision('CONTINUE', { chatMessage: intent.chatMessage });
-              emittedEvents.push('Chat message processed.');
             }
             break;
           }
@@ -396,7 +364,6 @@
             newSession.pendingParticipant = null; newSession.lastObservation = null;
             newSession.confidenceWindow = [];
             decision = createDecision('CONTINUE');
-            emittedEvents.push('Session reset.');
             break;
         }
 
@@ -406,53 +373,32 @@
         };
         newSession.transitionHistory = [...session.transitionHistory, historyEntry];
         newSession.decision = decision;
-        return {
-          newSession, newParticipants, newVoices, registriesChanged,
-          decisions: decision ? [decision] : [], emittedEvents, valid: true
-        };
+        return { newSession, newParticipants, newVoices, registriesChanged, decisions: decision ? [decision] : [], emittedEvents, valid: true };
       }
 
       function randomColor() { const hue = Math.floor(Math.random() * 360); return `hsl(${hue}, 70%, 65%)`; }
 
-      // ====================== LLM ADAPTERS ======================
-      // Semantic verification (LLM #1) – in real system, call an LLM
-      function interpretVerificationResponse(userText, pendingVoiceProfile) {
+      function interpretVerificationResponse(userText) {
         const lower = userText.toLowerCase();
-        // Check for explicit new participant phrases
-        if (lower.match(/(this is|i'm|call me|my name is|you can call me) (\w+)/i)) {
-          const match = lower.match(/(this is|i'm|call me|my name is|you can call me) (\w+)/i);
-          return { verificationResult: 'NEW_PARTICIPANT', name: match[2] };
-        }
-        if (lower.includes('new') || lower.includes('someone new') || lower.includes('different')) {
-          return { verificationResult: 'NEW_PARTICIPANT' }; // no name given
-        }
-        // Existing participant by name
-        if (lower.match(/(it's|i am|this is) (\w+)/i)) {
-          const match = lower.match(/(it's|i am|this is) (\w+)/i);
-          return { verificationResult: 'SAME_PARTICIPANT', participantName: match[2] };
-        }
-        if (lower.includes('same') || lower.includes('me') || lower.includes('back')) {
-          return { verificationResult: 'SAME_PARTICIPANT' };
-        }
-        return { verificationResult: 'NEW_PARTICIPANT' }; // default to new if unclear
+        const nameMatch = lower.match(/(this is|i'm|call me|my name is|you can call me|it's) (\w+)/i);
+        if (nameMatch) return { verificationResult: 'NEW_PARTICIPANT', name: nameMatch[2] };
+        if (lower.includes('new') || lower.includes('someone new')) return { verificationResult: 'NEW_PARTICIPANT' };
+        const existingMatch = lower.match(/(it's|i am|this is) (\w+)/i);
+        if (existingMatch) return { verificationResult: 'SAME_PARTICIPANT', participantName: existingMatch[2] };
+        if (lower.includes('same') || lower.includes('me') || lower.includes('back')) return { verificationResult: 'SAME_PARTICIPANT' };
+        return { verificationResult: 'NEW_PARTICIPANT' };
       }
 
-      // Conversational LLM (LLM #2)
       function generateConversationalReply(context) {
         const msg = context.message.toLowerCase();
         const speaker = context.speakerName || 'friend';
         if (msg.includes('how are you')) return `I'm doing great, ${speaker}. How about you?`;
         if (msg.includes('hello') || msg.includes('hi')) return `Hello, ${speaker}! Good to hear you.`;
         if (msg.includes('dinner')) return `${speaker}, how about pasta with a side salad?`;
-        const phrases = [
-          `That's interesting, ${speaker}. Tell me more.`,
-          `I see, ${speaker}. What do you think about that?`,
-          `Thanks for sharing, ${speaker}.`
-        ];
+        const phrases = [`That's interesting, ${speaker}. Tell me more.`, `I see, ${speaker}. What do you think?`, `Thanks for sharing, ${speaker}.`];
         return phrases[Math.floor(Math.random() * phrases.length)];
       }
 
-      // ====================== SIMULATED ACOUSTIC PROFILER ======================
       function runAcousticProfiler(speakerId) {
         switch (speakerId) {
           case 'alex': return { voiceProfile: 'voice_001', confidence: 0.92 };
@@ -463,7 +409,6 @@
         }
       }
 
-      // ====================== APPLICATION STATE UPDATES ======================
       function applyTransitionResult(result) {
         if (result.registriesChanged) {
           participantRegistry = result.newParticipants;
@@ -473,16 +418,13 @@
         result.emittedEvents.forEach(msg => appendSystemEvent(msg));
         result.decisions.forEach(dec => handleDecision(dec));
         updateUIState();
-        if (!result.valid) appendSystemEvent('Transition was invalid.');
       }
 
-      // ====================== UI HELPERS ======================
       function appendUserMessage(text, speakerName = 'You', color = '#ccc') {
         const area = document.getElementById('chatArea');
         const div = document.createElement('div');
         div.className = 'message user-msg';
-        const label = document.createElement('div');
-        label.className = 'speaker-label';
+        const label = document.createElement('div'); label.className = 'speaker-label';
         label.innerHTML = `<span class="speaker-dot" style="background:${color};"></span>${speakerName}`;
         div.appendChild(label);
         const content = document.createElement('div'); content.textContent = text;
@@ -493,12 +435,24 @@
         const area = document.getElementById('chatArea');
         const div = document.createElement('div');
         div.className = 'message assistant-msg';
-        const label = document.createElement('div');
-        label.className = 'speaker-label';
+        const label = document.createElement('div'); label.className = 'speaker-label';
         label.innerHTML = `<span class="speaker-dot" style="background:#533483;"></span>Assistant`;
         div.appendChild(label);
-        const content = document.createElement('div'); content.textContent = text;
-        div.appendChild(content); area.appendChild(div); area.scrollTop = area.scrollHeight;
+        const content = document.createElement('div');
+        content.textContent = text;
+        // add a button to manually replay speech
+        const speakBtn = document.createElement('button');
+        speakBtn.className = 'speak-btn';
+        speakBtn.innerHTML = '🔊';
+        speakBtn.title = 'Speak this message';
+        speakBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          speakText(text);
+        });
+        content.appendChild(speakBtn);
+        div.appendChild(content);
+        area.appendChild(div);
+        area.scrollTop = area.scrollHeight;
       }
 
       function appendSystemEvent(msg) {
@@ -511,17 +465,21 @@
       function handleDecision(decision) {
         const prompt = getPromptForDecision(decision);
         if (prompt) {
-          appendAssistantMessage(prompt);
-          if (uiState.mode === 'voice') speakText(prompt);
+          if (prompt !== lastSpokenText) {
+            lastSpokenText = prompt;
+            appendAssistantMessage(prompt);
+            speakText(prompt);   // always speak prompts
+          }
         } else if (decision.type === 'CONTINUE' || decision.type === 'RESUME' || decision.type === 'CREATE_PARTICIPANT') {
           const chatMsg = decision.payload?.chatMessage;
           if (chatMsg) {
-            const speaker = session.activeSpeaker
-              ? participantRegistry.get(session.activeSpeaker)?.name || 'friend'
-              : 'friend';
+            const speaker = session.activeSpeaker ? participantRegistry.get(session.activeSpeaker)?.name || 'friend' : 'friend';
             const reply = generateConversationalReply({ speakerName: speaker, message: chatMsg });
-            appendAssistantMessage(reply);
-            if (uiState.mode === 'voice') speakText(reply);
+            if (reply !== lastSpokenText) {
+              lastSpokenText = reply;
+              appendAssistantMessage(reply);
+              speakText(reply);  // speak chat reply
+            }
           }
         }
       }
@@ -536,14 +494,12 @@
 
       function updateUIState() {
         document.getElementById('currentState').textContent = session.currentState;
-        const activeId = session.activeSpeaker;
-        document.getElementById('activeSpeaker').textContent = activeId
-          ? (participantRegistry.get(activeId)?.name || activeId) : '—';
+        document.getElementById('activeSpeaker').textContent = session.activeSpeaker
+          ? (participantRegistry.get(session.activeSpeaker)?.name || session.activeSpeaker) : '—';
         document.getElementById('lastObservation').textContent = session.lastObservation
           ? JSON.stringify(session.lastObservation) : '—';
-        const dec = session.decision;
-        document.getElementById('lastDecision').textContent = dec
-          ? `${dec.type}${dec.payload ? ' ' + JSON.stringify(dec.payload) : ''}` : '—';
+        document.getElementById('lastDecision').textContent = session.decision
+          ? `${session.decision.type}${session.decision.payload ? ' ' + JSON.stringify(session.decision.payload) : ''}` : '—';
         document.getElementById('pendingParticipant').textContent = session.pendingParticipant
           ? JSON.stringify(session.pendingParticipant) : '—';
         const window = session.confidenceWindow;
@@ -561,8 +517,7 @@
       }
 
       function renderParticipantList() {
-        const list = document.getElementById('participantList');
-        list.innerHTML = '';
+        const list = document.getElementById('participantList'); list.innerHTML = '';
         participantRegistry.forEach(p => {
           const li = document.createElement('li'); li.className = 'participant-item';
           li.innerHTML = `<span class="participant-dot" style="background:${p.color};"></span> ${p.name} (${p.id})`;
@@ -571,19 +526,17 @@
       }
 
       function renderVoiceRegistry() {
-        const list = document.getElementById('voiceList');
-        list.innerHTML = '';
-        voiceRegistry.forEach((participantId, voiceId) => {
-          const p = participantRegistry.get(participantId);
+        const list = document.getElementById('voiceList'); list.innerHTML = '';
+        voiceRegistry.forEach((pid, vid) => {
+          const p = participantRegistry.get(pid);
           const li = document.createElement('li'); li.className = 'voice-item';
-          li.innerHTML = `${voiceId} → <span style="color:${p?.color || '#fff'}">${p?.name || 'unknown'}</span>`;
+          li.innerHTML = `${vid} → <span style="color:${p?.color || '#fff'}">${p?.name || 'unknown'}</span>`;
           list.appendChild(li);
         });
       }
 
       function renderTransitionHistory() {
-        const list = document.getElementById('transitionHistory');
-        list.innerHTML = '';
+        const list = document.getElementById('transitionHistory'); list.innerHTML = '';
         session.transitionHistory.slice(-8).forEach(entry => {
           const li = document.createElement('li'); li.className = 'history-item';
           li.textContent = `${entry.from} → ${entry.to} (${entry.eventType})`;
@@ -592,24 +545,27 @@
       }
 
       function highlightPipeline(stage) {
-        ['Profiler','CSE','LLM','Response'].forEach(s => {
-          document.getElementById('stage'+s).classList.remove('active');
-        });
+        ['Profiler','CSE','LLM','Response'].forEach(s => document.getElementById('stage'+s).classList.remove('active'));
         if (stage) document.getElementById('stage'+stage).classList.add('active');
       }
 
-      // ====================== SPEECH SYNTHESIS ======================
       function speakText(text) {
         return new Promise(resolve => {
-          if (!('speechSynthesis' in window)) { resolve(); return; }
-          window.speechSynthesis.cancel();
+          if (!('speechSynthesis' in window)) {
+            console.warn('Speech synthesis not supported. Use Chrome or Edge.');
+            resolve();
+            return;
+          }
+          window.speechSynthesis.cancel(); // cancel any previous speech
           const utterance = new SpeechSynthesisUtterance(text);
-          utterance.onend = resolve; utterance.onerror = resolve;
-          window.speechSynthesis.speak(utterance);
+          utterance.onend = resolve;
+          utterance.onerror = resolve;
+          // force a small pause to ensure browser audio context is ready
+          setTimeout(() => window.speechSynthesis.speak(utterance), 10);
         });
       }
 
-      // ====================== CONTINUOUS MICROPHONE & VAD ======================
+      // ================== Continuous Voice (optional) ==================
       async function startContinuousMic() {
         if (uiState.isMicActive) return;
         try {
@@ -622,8 +578,6 @@
           analyser.fftSize = 256;
           source.connect(analyser);
           uiState.analyser = analyser;
-
-          // Start continuous profiling loop
           uiState.isMicActive = true;
           updateMicUI();
           continuousProfilerLoop();
@@ -633,14 +587,8 @@
       }
 
       function stopContinuousMic() {
-        if (uiState.stream) {
-          uiState.stream.getTracks().forEach(t => t.stop());
-          uiState.stream = null;
-        }
-        if (uiState.audioContext) {
-          uiState.audioContext.close();
-          uiState.audioContext = null;
-        }
+        if (uiState.stream) { uiState.stream.getTracks().forEach(t => t.stop()); uiState.stream = null; }
+        if (uiState.audioContext) { uiState.audioContext.close(); uiState.audioContext = null; }
         if (uiState.animationId) cancelAnimationFrame(uiState.animationId);
         uiState.isMicActive = false;
         updateMicUI();
@@ -660,37 +608,33 @@
 
       function continuousProfilerLoop() {
         if (!uiState.isMicActive) return;
-        // Simulate VAD based on audio level (real VAD would be more sophisticated)
         const analyser = uiState.analyser;
         const dataArray = new Uint8Array(analyser.frequencyBinCount);
         analyser.getByteFrequencyData(dataArray);
         const avg = dataArray.reduce((a,b)=>a+b,0)/dataArray.length;
-        const isSpeech = avg > 30; // threshold for demonstration
+        const isSpeech = avg > 30;
 
         if (isSpeech) {
-          // Determine simulated speaker (static or auto‑cycling)
           let speakerId = uiState.simulatedSpeaker;
           if (uiState.autoCycle) {
             const cycle = ['alex','bella','unknown_med','unknown_low'];
             speakerId = cycle[Math.floor(Date.now()/3000) % cycle.length];
           }
           const observation = runAcousticProfiler(speakerId);
-          // Fire observation to CSE
           const result = transition(session, { type: 'ACOUSTIC_OBSERVATION', payload: observation }, participantRegistry, voiceRegistry);
           applyTransitionResult(result);
           highlightPipeline('Profiler');
           highlightPipeline('CSE');
         }
-
         uiState.animationId = requestAnimationFrame(continuousProfilerLoop);
       }
 
-      // ====================== TEXT INPUT ======================
+      // ================== Text input (with speech) ==================
       function processTextInput(text) {
         appendUserMessage(text, 'You', '#ccc');
         if (session.currentState === 'VERIFYING' || session.currentState === 'COLLECTING_NAME') {
           const intent = session.currentState === 'VERIFYING'
-            ? interpretVerificationResponse(text, session.pendingParticipant?.voiceProfile)
+            ? interpretVerificationResponse(text)
             : { name: text.trim() };
           const result = transition(session, { type: 'USER_INTENT', payload: { intent } }, participantRegistry, voiceRegistry);
           applyTransitionResult(result);
@@ -700,48 +644,44 @@
         }
       }
 
-      // ====================== FULL DEMO ======================
+      // ================== Demo ==================
       function runFullDemo() {
-        // Simulate a speaker change with rolling confidence
         let res = transition(session, { type: 'ACOUSTIC_OBSERVATION', payload: runAcousticProfiler('alex') }, participantRegistry, voiceRegistry);
         applyTransitionResult(res);
         setTimeout(() => {
           res = transition(session, { type: 'ACOUSTIC_OBSERVATION', payload: runAcousticProfiler('unknown_med') }, participantRegistry, voiceRegistry);
           applyTransitionResult(res);
           setTimeout(() => {
-            const intent = interpretVerificationResponse("This is Sarah", 'voice_003');
+            const intent = interpretVerificationResponse("This is Sarah");
             res = transition(session, { type: 'USER_INTENT', payload: { intent } }, participantRegistry, voiceRegistry);
             applyTransitionResult(res);
           }, 1500);
         }, 1000);
       }
 
-      // ====================== DOCUMENTATION ======================
-      const docsText = `Aether v2 – Continuous Conversation State Engine\n\n- Real‑time microphone streaming with simulated VAD.\n- Continuous acoustic profiling (simulated) feeds observations to CSE.\n- Cumulative confidence window prevents premature verification.\n- Semantic verification understands natural responses.\n- Live UI updates with confidence meter.\n- CSE remains pure and deterministic.`;
+      // ================== Docs ==================
+      const docsText = `Aether v2 – Spoken Replies\n\n- Every assistant message is automatically spoken using browser TTS.\n- Click the 🔊 icon to replay any message.\n- Start in text mode to test: type "Hello" and hear the reply.`;
       function showDocs() {
         document.getElementById('docsText').textContent = docsText;
         document.getElementById('docsOverlay').style.display = 'flex';
       }
       function hideDocs() { document.getElementById('docsOverlay').style.display = 'none'; }
 
-      // ====================== EVENT LISTENERS ======================
+      // ================== Event listeners ==================
       document.querySelectorAll('input[name="interactionMode"]').forEach(radio => {
         radio.addEventListener('change', (e) => {
           if (e.target.checked) {
             uiState.mode = e.target.value;
-            document.getElementById('voiceUI').style.display = uiState.mode === 'voice' ? 'block' : 'none';
             document.getElementById('textUI').style.display = uiState.mode === 'text' ? 'block' : 'none';
+            document.getElementById('voiceUI').style.display = uiState.mode === 'voice' ? 'block' : 'none';
             if (uiState.mode === 'text') stopContinuousMic();
           }
         });
       });
 
       document.getElementById('micButton').addEventListener('click', () => {
-        if (uiState.isMicActive) {
-          stopContinuousMic();
-        } else {
-          startContinuousMic();
-        }
+        if (uiState.isMicActive) stopContinuousMic();
+        else startContinuousMic();
       });
 
       document.getElementById('sendBtn').addEventListener('click', () => {
@@ -755,21 +695,15 @@
         if (e.key === 'Enter') document.getElementById('sendBtn').click();
       });
 
-      document.getElementById('simSpeakerSelect').addEventListener('change', (e) => {
-        uiState.simulatedSpeaker = e.target.value;
-      });
-
-      document.getElementById('autoCycleCheckbox').addEventListener('change', (e) => {
-        uiState.autoCycle = e.target.checked;
-      });
-
+      document.getElementById('simSpeakerSelect').addEventListener('change', (e) => uiState.simulatedSpeaker = e.target.value);
+      document.getElementById('autoCycleCheckbox').addEventListener('change', (e) => uiState.autoCycle = e.target.checked);
       document.getElementById('runDemoBtn').addEventListener('click', runFullDemo);
       document.getElementById('docsBtn').addEventListener('click', showDocs);
       document.getElementById('closeDocsBtn').addEventListener('click', hideDocs);
 
-      // Initialise
+      // ================== Init ==================
       updateUIState();
-      appendSystemEvent('Aether v2 ready. Start continuous mic or type.');
+      appendSystemEvent('Aether ready. Type a message (e.g., "Hello") and hear the spoken reply.');
     })();
   </script>
 </body>
