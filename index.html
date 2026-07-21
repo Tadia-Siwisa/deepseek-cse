@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Aether v2 – Spoken Replies Guaranteed</title>
+  <title>Aether – Tap to Speak (Voice-First)</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -33,7 +33,7 @@
     }
     .message { max-width: 80%; padding: 0.7rem 1rem; border-radius: 1rem; line-height: 1.4; word-wrap: break-word; }
     .user-msg { align-self: flex-end; background: #0f3460; }
-    .assistant-msg { align-self: flex-start; background: #533483; position: relative; }
+    .assistant-msg { align-self: flex-start; background: #533483; }
     .speaker-label {
       font-size: 0.7rem; font-weight: bold; margin-bottom: 0.2rem;
       display: flex; align-items: center; gap: 0.3rem;
@@ -49,28 +49,22 @@
       display: flex; flex-direction: column; align-items: center; gap: 0.8rem;
       background: #1a1a2e;
     }
-    .mode-toggle { display: flex; gap: 2rem; font-size: 1rem; font-weight: bold; margin-bottom: 0.5rem; }
     .mic-button {
-      width: 100px; height: 100px; border-radius: 50%; background: #e94560;
+      width: 120px; height: 120px; border-radius: 50%; background: #e94560;
       border: 4px solid #fff; cursor: pointer; display: flex; align-items: center; justify-content: center;
-      font-size: 2.5rem; color: white; transition: all 0.2s; box-shadow: 0 4px 20px rgba(233,69,96,0.7);
-      margin: 0.5rem auto;
+      font-size: 3rem; color: white; transition: all 0.2s; box-shadow: 0 4px 20px rgba(233,69,96,0.7);
+      margin: 0.5rem auto; position: relative;
     }
-    .mic-button:hover { background: #ff6b81; transform: scale(1.05); }
-    .mic-button.active {
+    .mic-button.listening {
       background: #f5a623; border-color: #ffe082;
       box-shadow: 0 4px 30px rgba(245,166,35,0.9); animation: pulse 1.2s infinite;
     }
     @keyframes pulse {
       0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(245,166,35,0.9); }
-      50% { transform: scale(1.08); box-shadow: 0 0 0 12px rgba(245,166,35,0); }
+      50% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(245,166,35,0); }
       100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(245,166,35,0); }
     }
-    .mic-status { font-size: 1rem; color: #f5a623; height: 1.5em; margin-bottom: 0.5rem; font-weight: bold; }
-    .confidence-bar {
-      width: 100%; height: 12px; background: #333; border-radius: 6px; overflow: hidden; margin: 0.5rem 0;
-    }
-    .confidence-fill { height: 100%; background: #e94560; transition: width 0.1s; }
+    .mic-status { font-size: 1rem; color: #f5a623; height: 1.5em; font-weight: bold; }
     .text-input-row { display: flex; gap: 0.5rem; width: 100%; }
     #userTextInput {
       flex: 1; padding: 0.7rem; border-radius: 8px; border: none; background: #0f3460; color: white;
@@ -124,21 +118,19 @@
     <div class="chat-area" id="chatArea"></div>
 
     <div class="input-area">
-      <div class="mode-toggle">
-        <label style="color:#e94560;"><input type="radio" name="interactionMode" value="text" checked> ⌨️ Text (with speech)</label>
-        <label><input type="radio" name="interactionMode" value="voice"> 🎤 Continuous Voice</label>
+      <div style="display: flex; gap: 1rem; font-size: 0.9rem;">
+        <label style="color:#e94560;"><input type="radio" name="interactionMode" value="voice" checked> 🎤 Voice</label>
+        <label><input type="radio" name="interactionMode" value="text"> ⌨️ Text</label>
       </div>
-      <div id="textUI" style="width:100%;">
+      <div id="voiceUI">
+        <button class="mic-button" id="micButton">🎤</button>
+        <div class="mic-status" id="micStatus">Tap to Speak</div>
+      </div>
+      <div id="textUI" style="display:none; width:100%;">
         <div class="text-input-row">
           <input type="text" id="userTextInput" placeholder="Type message..." />
           <button id="sendBtn">Send</button>
         </div>
-      </div>
-      <div id="voiceUI" style="display:none; text-align: center;">
-        <button class="mic-button" id="micButton">🎤</button>
-        <div class="mic-status" id="micStatus">Tap to start live session</div>
-        <div class="confidence-bar"><div class="confidence-fill" id="confidenceFill" style="width:0%;"></div></div>
-        <div style="font-size:0.8rem; color:#aaa;">Live confidence: <span id="liveConfidence">--</span>%</div>
       </div>
       <details style="width:100%; margin-top:0.5rem;">
         <summary style="cursor:pointer; color:#aaa;">⚙️ Simulation & Settings</summary>
@@ -160,7 +152,7 @@
   </div>
 
   <div class="right-panel">
-    <div class="panel-title">Conversation State Engine (Live)</div>
+    <div class="panel-title">Conversation State Engine</div>
     <div class="state-section">
       <div class="state-row"><span class="state-label">State:</span><span class="state-value" id="currentState">IDLE</span></div>
       <div class="state-row"><span class="state-label">Active Speaker:</span><span class="state-value" id="activeSpeaker">—</span></div>
@@ -217,21 +209,21 @@
         activeSpeaker: null, pendingParticipant: null,
         lastObservation: null, decision: null,
         transitionHistory: [],
-        confidenceWindow: []
+        confidenceWindow: [] // rolling window of last 10 confidences
       };
 
-      let lastSpokenText = ''; // avoid spamming TTS
+      let lastSpokenText = '';
 
       const uiState = {
-        mode: 'text',   // default to text so user can immediately type and hear speech
-        isMicActive: false,
-        audioContext: null, stream: null, analyser: null, animationId: null,
+        mode: 'voice',
+        isListening: false,
         simulatedSpeaker: 'alex',
         autoCycle: false
       };
 
       function createDecision(type, payload = null) { return { type, payload }; }
 
+      // ====================== PURE CSE ======================
       function transition(session, event, participants, voices) {
         const newSession = { ...session };
         newSession.previousState = session.currentState;
@@ -278,7 +270,6 @@
                 newSession.pendingParticipant = { voiceProfile, status: 'AWAITING_VERIFICATION' };
                 newSession.currentState = 'VERIFYING';
                 decision = createDecision('REQUEST_VERIFICATION');
-                emittedEvents.push(`Medium confidence. Verification requested.`);
               } else {
                 decision = createDecision('CONTINUE');
               }
@@ -287,7 +278,6 @@
                 newSession.pendingParticipant = { voiceProfile, status: 'AWAITING_VERIFICATION' };
                 newSession.currentState = 'VERIFYING';
                 decision = createDecision('REQUEST_VERIFICATION');
-                emittedEvents.push(`Low confidence. Verification requested.`);
               } else {
                 decision = createDecision('CONTINUE');
               }
@@ -310,7 +300,6 @@
                   newSession.pendingParticipant = null;
                   newSession.currentState = 'ACTIVE';
                   decision = createDecision('CREATE_PARTICIPANT', { participantId: newId });
-                  emittedEvents.push(`New participant '${name}' created.`);
                 } else {
                   newSession.currentState = 'COLLECTING_NAME';
                   newSession.pendingParticipant.status = 'AWAITING_NAME';
@@ -440,15 +429,11 @@
         div.appendChild(label);
         const content = document.createElement('div');
         content.textContent = text;
-        // add a button to manually replay speech
         const speakBtn = document.createElement('button');
         speakBtn.className = 'speak-btn';
         speakBtn.innerHTML = '🔊';
-        speakBtn.title = 'Speak this message';
-        speakBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          speakText(text);
-        });
+        speakBtn.title = 'Replay speech';
+        speakBtn.addEventListener('click', (e) => { e.stopPropagation(); speakText(text); });
         content.appendChild(speakBtn);
         div.appendChild(content);
         area.appendChild(div);
@@ -468,7 +453,7 @@
           if (prompt !== lastSpokenText) {
             lastSpokenText = prompt;
             appendAssistantMessage(prompt);
-            speakText(prompt);   // always speak prompts
+            speakText(prompt);
           }
         } else if (decision.type === 'CONTINUE' || decision.type === 'RESUME' || decision.type === 'CREATE_PARTICIPANT') {
           const chatMsg = decision.payload?.chatMessage;
@@ -478,7 +463,7 @@
             if (reply !== lastSpokenText) {
               lastSpokenText = reply;
               appendAssistantMessage(reply);
-              speakText(reply);  // speak chat reply
+              speakText(reply);
             }
           }
         }
@@ -502,17 +487,6 @@
           ? `${session.decision.type}${session.decision.payload ? ' ' + JSON.stringify(session.decision.payload) : ''}` : '—';
         document.getElementById('pendingParticipant').textContent = session.pendingParticipant
           ? JSON.stringify(session.pendingParticipant) : '—';
-        const window = session.confidenceWindow;
-        if (window.length > 0) {
-          const avg = window.reduce((a,b)=>a+b,0)/window.length;
-          document.getElementById('avgConfidence').textContent = avg.toFixed(2);
-          document.getElementById('confidenceFill').style.width = (avg*100)+'%';
-          document.getElementById('liveConfidence').textContent = Math.round(avg*100);
-        } else {
-          document.getElementById('avgConfidence').textContent = '—';
-          document.getElementById('confidenceFill').style.width = '0%';
-          document.getElementById('liveConfidence').textContent = '--';
-        }
         renderParticipantList(); renderVoiceRegistry(); renderTransitionHistory();
       }
 
@@ -549,87 +523,116 @@
         if (stage) document.getElementById('stage'+stage).classList.add('active');
       }
 
+      // ====================== SPEECH SYNTHESIS ======================
       function speakText(text) {
         return new Promise(resolve => {
           if (!('speechSynthesis' in window)) {
-            console.warn('Speech synthesis not supported. Use Chrome or Edge.');
+            console.warn('Speech synthesis not supported.');
             resolve();
             return;
           }
-          window.speechSynthesis.cancel(); // cancel any previous speech
+          window.speechSynthesis.cancel();
           const utterance = new SpeechSynthesisUtterance(text);
           utterance.onend = resolve;
           utterance.onerror = resolve;
-          // force a small pause to ensure browser audio context is ready
           setTimeout(() => window.speechSynthesis.speak(utterance), 10);
         });
       }
 
-      // ================== Continuous Voice (optional) ==================
-      async function startContinuousMic() {
-        if (uiState.isMicActive) return;
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          uiState.stream = stream;
-          const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-          uiState.audioContext = audioCtx;
-          const source = audioCtx.createMediaStreamSource(stream);
-          const analyser = audioCtx.createAnalyser();
-          analyser.fftSize = 256;
-          source.connect(analyser);
-          uiState.analyser = analyser;
-          uiState.isMicActive = true;
-          updateMicUI();
-          continuousProfilerLoop();
-        } catch (e) {
-          alert('Microphone access denied.');
+      // ====================== VOICE RECOGNITION ======================
+      let recognition = null;
+      function initRecognition() {
+        if (recognition) return true;
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+          alert('Speech recognition not supported. Use Chrome or Edge.');
+          return false;
         }
+        recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.lang = 'en-US';
+        recognition.onresult = (event) => {
+          const transcript = event.results[0][0].transcript.trim();
+          stopListening();
+          appendUserMessage(transcript, 'You', '#ccc');
+          processVoiceInput(transcript);
+        };
+        recognition.onerror = () => {
+          stopListening();
+          appendSystemEvent('Speech recognition error.');
+        };
+        return true;
       }
 
-      function stopContinuousMic() {
-        if (uiState.stream) { uiState.stream.getTracks().forEach(t => t.stop()); uiState.stream = null; }
-        if (uiState.audioContext) { uiState.audioContext.close(); uiState.audioContext = null; }
-        if (uiState.animationId) cancelAnimationFrame(uiState.animationId);
-        uiState.isMicActive = false;
+      function startListening() {
+        if (!initRecognition()) return;
+        try { recognition.stop(); } catch(e) {}
+        uiState.isListening = true;
+        updateMicUI();
+        recognition.start();
+      }
+
+      function stopListening() {
+        if (recognition) {
+          try { recognition.stop(); } catch(e) {}
+        }
+        uiState.isListening = false;
         updateMicUI();
       }
 
       function updateMicUI() {
         const btn = document.getElementById('micButton');
         const status = document.getElementById('micStatus');
-        if (uiState.isMicActive) {
-          btn.classList.add('active');
-          status.textContent = 'Live – listening continuously';
+        if (uiState.isListening) {
+          btn.classList.add('listening');
+          status.textContent = 'Listening...';
         } else {
-          btn.classList.remove('active');
-          status.textContent = 'Tap to start live session';
+          btn.classList.remove('listening');
+          status.textContent = 'Tap to Speak';
         }
       }
 
-      function continuousProfilerLoop() {
-        if (!uiState.isMicActive) return;
-        const analyser = uiState.analyser;
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
-        analyser.getByteFrequencyData(dataArray);
-        const avg = dataArray.reduce((a,b)=>a+b,0)/dataArray.length;
-        const isSpeech = avg > 30;
+      // ====================== VOICE INPUT PIPELINE ======================
+      function processVoiceInput(transcript) {
+        // Determine speaker identity (simulated)
+        let speakerId = uiState.simulatedSpeaker;
+        if (uiState.autoCycle) {
+          const cycle = ['alex','bella','unknown_med','unknown_low'];
+          speakerId = cycle[Math.floor(Date.now()/3000) % cycle.length];
+        }
 
-        if (isSpeech) {
-          let speakerId = uiState.simulatedSpeaker;
-          if (uiState.autoCycle) {
-            const cycle = ['alex','bella','unknown_med','unknown_low'];
-            speakerId = cycle[Math.floor(Date.now()/3000) % cycle.length];
-          }
-          const observation = runAcousticProfiler(speakerId);
-          const result = transition(session, { type: 'ACOUSTIC_OBSERVATION', payload: observation }, participantRegistry, voiceRegistry);
-          applyTransitionResult(result);
-          highlightPipeline('Profiler');
+        // 1. Acoustic Profiler
+        highlightPipeline('Profiler');
+        const observation = runAcousticProfiler(speakerId);
+        // 2. Feed observation to CSE
+        highlightPipeline('CSE');
+        const obsResult = transition(session, { type: 'ACOUSTIC_OBSERVATION', payload: observation }, participantRegistry, voiceRegistry);
+        applyTransitionResult(obsResult);
+
+        // 3. Determine what the transcript means based on current state
+        const currentState = obsResult.newSession.currentState;
+        if (currentState === 'VERIFYING' || currentState === 'COLLECTING_NAME') {
+          // Answer to a pending question – bypass profiler for intent
+          highlightPipeline('LLM');
+          const intent = currentState === 'VERIFYING'
+            ? interpretVerificationResponse(transcript)
+            : { name: transcript.trim() };
           highlightPipeline('CSE');
+          const intentResult = transition(obsResult.newSession, { type: 'USER_INTENT', payload: { intent } }, participantRegistry, voiceRegistry);
+          applyTransitionResult(intentResult);
+        } else if (obsResult.decisions[0]?.type === 'CONTINUE') {
+          // Known speaker – treat as chat
+          highlightPipeline('LLM');
+          const intent = { chatMessage: transcript };
+          highlightPipeline('CSE');
+          const intentResult = transition(obsResult.newSession, { type: 'USER_INTENT', payload: { intent } }, participantRegistry, voiceRegistry);
+          applyTransitionResult(intentResult);
         }
-        uiState.animationId = requestAnimationFrame(continuousProfilerLoop);
+        highlightPipeline('Response');
       }
 
-      // ================== Text input (with speech) ==================
+      // ====================== TEXT INPUT ======================
       function processTextInput(text) {
         appendUserMessage(text, 'You', '#ccc');
         if (session.currentState === 'VERIFYING' || session.currentState === 'COLLECTING_NAME') {
@@ -644,7 +647,7 @@
         }
       }
 
-      // ================== Demo ==================
+      // ====================== FULL DEMO ======================
       function runFullDemo() {
         let res = transition(session, { type: 'ACOUSTIC_OBSERVATION', payload: runAcousticProfiler('alex') }, participantRegistry, voiceRegistry);
         applyTransitionResult(res);
@@ -659,29 +662,32 @@
         }, 1000);
       }
 
-      // ================== Docs ==================
-      const docsText = `Aether v2 – Spoken Replies\n\n- Every assistant message is automatically spoken using browser TTS.\n- Click the 🔊 icon to replay any message.\n- Start in text mode to test: type "Hello" and hear the reply.`;
+      // ====================== DOCS ======================
+      const docsText = `Aether – Tap-to-Speak Voice Mode\n\n- Press the microphone button, speak, and hear the assistant reply aloud.\n- All system events appear only in the right panel.\n- Use simulation controls to change speaker identity.`;
       function showDocs() {
         document.getElementById('docsText').textContent = docsText;
         document.getElementById('docsOverlay').style.display = 'flex';
       }
       function hideDocs() { document.getElementById('docsOverlay').style.display = 'none'; }
 
-      // ================== Event listeners ==================
+      // ====================== EVENT LISTENERS ======================
       document.querySelectorAll('input[name="interactionMode"]').forEach(radio => {
         radio.addEventListener('change', (e) => {
           if (e.target.checked) {
             uiState.mode = e.target.value;
-            document.getElementById('textUI').style.display = uiState.mode === 'text' ? 'block' : 'none';
             document.getElementById('voiceUI').style.display = uiState.mode === 'voice' ? 'block' : 'none';
-            if (uiState.mode === 'text') stopContinuousMic();
+            document.getElementById('textUI').style.display = uiState.mode === 'text' ? 'block' : 'none';
+            if (uiState.isListening) stopListening();
           }
         });
       });
 
       document.getElementById('micButton').addEventListener('click', () => {
-        if (uiState.isMicActive) stopContinuousMic();
-        else startContinuousMic();
+        if (uiState.isListening) {
+          stopListening();
+        } else {
+          startListening();
+        }
       });
 
       document.getElementById('sendBtn').addEventListener('click', () => {
@@ -701,9 +707,9 @@
       document.getElementById('docsBtn').addEventListener('click', showDocs);
       document.getElementById('closeDocsBtn').addEventListener('click', hideDocs);
 
-      // ================== Init ==================
+      // Init
       updateUIState();
-      appendSystemEvent('Aether ready. Type a message (e.g., "Hello") and hear the spoken reply.');
+      appendSystemEvent('Press "Tap to Speak" and say something. The assistant will reply aloud.');
     })();
   </script>
 </body>
