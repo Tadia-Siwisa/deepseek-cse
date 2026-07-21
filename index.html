@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Aether – Complete Conversation State Engine</title>
+  <title>Aether – Fixed Verification Flow</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -150,7 +150,7 @@
           <label><input type="checkbox" id="autoCycleCheckbox" checked> Auto Cycle Speakers</label>
           <span id="currentSimSpeakerDisplay" style="color:#f5a623;"></span>
           <button id="simInjectBtn">Inject Observation</button>
-          <button id="runFullDemoBtn">Run Full Demo (Alex → Unknown → Chris)</button>
+          <button id="runFullDemoBtn">Run Full Demo</button>
           <button id="docsBtn">? Docs</button>
         </div>
       </details>
@@ -183,7 +183,7 @@
       <ul class="history-list" id="transitionHistory"></ul>
     </div>
     <div class="state-section">
-      <h3>System Events (Telemetry)</h3>
+      <h3>System Events</h3>
       <div class="system-log" id="systemEventsLog"></div>
     </div>
   </div>
@@ -235,7 +235,7 @@
       // ====================== HELPER ======================
       function createDecision(type, payload = null) { return { type, payload }; }
 
-      // ====================== PURE STATE MACHINE ======================
+      // ====================== PURE STATE MACHINE (unchanged) ======================
       function transition(session, event, participants, voices) {
         const newSession = { ...session };
         newSession.previousState = session.currentState;
@@ -348,7 +348,7 @@
 
       function randomColor() { const hue = Math.floor(Math.random() * 360); return `hsl(${hue}, 70%, 65%)`; }
 
-      // ====================== INTENT LLM (structured parsing, swappable) ======================
+      // ====================== INTENT LLM ======================
       function interpretUserIntent(text, expectedType) {
         const lower = text.toLowerCase();
         if (expectedType === 'VERIFICATION') {
@@ -363,9 +363,8 @@
         return { chatMessage: text };
       }
 
-      // ====================== CONVERSATIONAL LLM ADAPTER (replace with real API) ======================
+      // ====================== CONVERSATIONAL LLM ADAPTER ======================
       function generateConversationalReply(context) {
-        // context = { speakerName, message, participants, state }
         const msg = context.message.toLowerCase();
         const speaker = context.speakerName || 'friend';
         if (msg.includes('how are you')) return `I'm doing well, ${speaker}. How are you today?`;
@@ -463,8 +462,12 @@
           appendAssistantMessage(prompt);
           if (uiState.mode === 'voice') {
             speakText(prompt).then(() => {
-              if (decision.type === 'REQUEST_VERIFICATION') startListeningWithIntent('VERIFICATION');
-              else if (decision.type === 'REQUEST_NAME') startListeningWithIntent('NAME');
+              // In VERIFYING/COLLECTING_NAME we don't start listening automatically;
+              // the user will tap the mic when ready. But we could also auto-open the mic.
+              // For better UX, we'll not auto-listen; the mic button's behavior will handle the answer.
+              // The user will tap the mic again to answer.
+              // However, we can set a flag so that the next mic tap knows it's an answer.
+              // The mic button handler already checks the state, so no flag needed.
             });
           }
         } else if (decision.type === 'CONTINUE' || decision.type === 'RESUME' || decision.type === 'CREATE_PARTICIPANT') {
@@ -552,7 +555,7 @@
 
       // ====================== SPEECH RECOGNITION ======================
       let recognition = null;
-      let currentExpectedIntent = null;
+      let pendingAnswerType = null; // 'VERIFICATION' or 'NAME' if the next speech is an answer
 
       function ensureRecognition() {
         if (recognition) return true;
@@ -564,10 +567,17 @@
           const transcript = event.results[0][0].transcript.trim();
           stopListening();
           appendUserMessage(transcript, 'You', '#ccc');
-          if (currentExpectedIntent) {
-            handleVoiceIntent(transcript, currentExpectedIntent);
+          // Determine if we are currently in a state that expects an answer
+          if (session.currentState === 'VERIFYING' || session.currentState === 'COLLECTING_NAME') {
+            // This transcript is an answer to the pending question.
+            // We bypass the profiler and go straight to intent.
+            processAnswer(transcript);
+          } else if (pendingAnswerType) {
+            // edge case: pending answer type set but state changed? fallback to normal.
+            processAnswer(transcript);
           } else {
-            handleInitialVoiceInput(transcript);
+            // Normal voice input with profiler
+            handleNormalVoiceInput(transcript);
           }
         };
         recognition.onerror = () => { stopListening(); appendSystemEvent('Speech recognition error.'); };
@@ -590,33 +600,27 @@
         const btn = document.getElementById('micButton');
         const status = document.getElementById('micStatus');
         btn.classList.toggle('listening', uiState.isListening);
-        status.textContent = uiState.isListening ? 'Listening...' : 'Tap to speak';
+        const state = session.currentState;
+        if (state === 'VERIFYING') status.textContent = 'Answer the question';
+        else if (state === 'COLLECTING_NAME') status.textContent = 'Say your name';
+        else status.textContent = uiState.isListening ? 'Listening...' : 'Tap to speak';
       }
 
-      function startListeningWithIntent(intentType) {
-        currentExpectedIntent = intentType;
-        startListening();
-      }
-
-      // ====================== VOICE PIPELINE ======================
-      function handleVoiceIntent(transcript, expectedType) {
-        highlightPipeline('Profiler');
-        const speaker = uiState.autoCycle ? getNextAutoSpeaker() : getCurrentSimSpeaker();
-        const observation = runAcousticProfiler(speaker);
-        highlightPipeline('CSE');
-        const obsResult = transition(session, { type: 'ACOUSTIC_OBSERVATION', payload: observation }, participantRegistry, voiceRegistry);
-        applyTransitionResult(obsResult);
+      // ====================== VOICE PIPELINE (FIXED) ======================
+      function processAnswer(transcript) {
+        // The CSE is in VERIFYING or COLLECTING_NAME.
+        // Determine expected intent type from state.
         highlightPipeline('LLM');
-        const llmResult = interpretUserIntent(transcript, expectedType);
+        let expectedType = session.currentState === 'VERIFYING' ? 'VERIFICATION' : 'NAME';
+        const intent = interpretUserIntent(transcript, expectedType);
         highlightPipeline('CSE');
-        const intentEvent = { type: 'USER_INTENT', payload: { intent: llmResult } };
-        const intentResult = transition(obsResult.newSession, intentEvent, participantRegistry, voiceRegistry);
-        applyTransitionResult(intentResult);
+        const result = transition(session, { type: 'USER_INTENT', payload: { intent } }, participantRegistry, voiceRegistry);
+        applyTransitionResult(result);
         highlightPipeline('Response');
-        currentExpectedIntent = null;
       }
 
-      function handleInitialVoiceInput(transcript) {
+      function handleNormalVoiceInput(transcript) {
+        // Standard flow: profiler -> CSE -> possibly LLM chat
         highlightPipeline('Profiler');
         const speaker = uiState.autoCycle ? getNextAutoSpeaker() : getCurrentSimSpeaker();
         const observation = runAcousticProfiler(speaker);
@@ -626,10 +630,9 @@
         const decision = obsResult.decisions[0];
         if (decision && decision.type === 'CONTINUE') {
           highlightPipeline('LLM');
-          const llmResult = interpretUserIntent(transcript, 'CHAT');
+          const intent = interpretUserIntent(transcript, 'CHAT');
           highlightPipeline('CSE');
-          const intentEvent = { type: 'USER_INTENT', payload: { intent: llmResult } };
-          const intentResult = transition(obsResult.newSession, intentEvent, participantRegistry, voiceRegistry);
+          const intentResult = transition(obsResult.newSession, { type: 'USER_INTENT', payload: { intent } }, participantRegistry, voiceRegistry);
           applyTransitionResult(intentResult);
         }
         highlightPipeline('Response');
@@ -638,13 +641,16 @@
       // ====================== TEXT INPUT ======================
       function processTextInput(text) {
         appendUserMessage(text, 'You', '#ccc');
-        let expectedType = 'CHAT';
-        if (session.currentState === 'VERIFYING') expectedType = 'VERIFICATION';
-        else if (session.currentState === 'COLLECTING_NAME') expectedType = 'NAME';
-        const llmResult = interpretUserIntent(text, expectedType);
-        const intentEvent = { type: 'USER_INTENT', payload: { intent: llmResult } };
-        const result = transition(session, intentEvent, participantRegistry, voiceRegistry);
-        applyTransitionResult(result);
+        if (session.currentState === 'VERIFYING' || session.currentState === 'COLLECTING_NAME') {
+          let expectedType = session.currentState === 'VERIFYING' ? 'VERIFICATION' : 'NAME';
+          const intent = interpretUserIntent(text, expectedType);
+          const result = transition(session, { type: 'USER_INTENT', payload: { intent } }, participantRegistry, voiceRegistry);
+          applyTransitionResult(result);
+        } else {
+          const intent = interpretUserIntent(text, 'CHAT');
+          const result = transition(session, { type: 'USER_INTENT', payload: { intent } }, participantRegistry, voiceRegistry);
+          applyTransitionResult(result);
+        }
       }
 
       // ====================== SPEECH SYNTHESIS ======================
@@ -658,31 +664,30 @@
         });
       }
 
-      // ====================== DEMO: Full Flow ======================
+      // ====================== FULL DEMO ======================
       function runFullDemo() {
-        // 1. Alex speaks
+        // Alex speaks
         let res = transition(session, { type: 'ACOUSTIC_OBSERVATION', payload: runAcousticProfiler('alex') }, participantRegistry, voiceRegistry);
         applyTransitionResult(res);
-        // Simulate user says "Hello"
         res = transition(session, { type: 'USER_INTENT', payload: { intent: { chatMessage: 'Hello' } } }, participantRegistry, voiceRegistry);
         applyTransitionResult(res);
-        // 2. Bella speaks (unknown voice)
+        // Unknown voice
         res = transition(session, { type: 'ACOUSTIC_OBSERVATION', payload: runAcousticProfiler('unknown_med') }, participantRegistry, voiceRegistry);
         applyTransitionResult(res);
-        // 3. User verification: "new"
+        // Answer new
         res = transition(session, { type: 'USER_INTENT', payload: { intent: { verificationResult: 'NEW_PARTICIPANT' } } }, participantRegistry, voiceRegistry);
         applyTransitionResult(res);
-        // 4. Provide name
+        // Provide name
         res = transition(session, { type: 'USER_INTENT', payload: { intent: { name: 'Chris' } } }, participantRegistry, voiceRegistry);
         applyTransitionResult(res);
-        // 5. Chris speaks again
+        // Chat again
         res = transition(session, { type: 'USER_INTENT', payload: { intent: { chatMessage: 'How are you?' } } }, participantRegistry, voiceRegistry);
         applyTransitionResult(res);
         appendSystemEvent('Full demo executed: Alex → Unknown → Chris created.');
       }
 
       // ====================== DOCS ======================
-      const docsText = `Aether – Complete Conversation State Engine\n\n- Separated intent LLM (interpretUserIntent) and conversational LLM (generateConversationalReply).\n- CSE only emits decisions; natural language is produced by the conversational adapter.\n- System events never appear in chat.\n- Auto speaker cycling enables demonstration of verification flow.\n- Click 'Run Full Demo' to see Alex → unknown → Chris.`;
+      const docsText = `Aether – Fixed Verification Flow\n\n- When CSE is in VERIFYING or COLLECTING_NAME, the microphone bypasses the Acoustic Profiler.\n- Spoken answers are routed directly as USER_INTENT events.\n- The verification loop now completes correctly.`;
       function showDocs() {
         document.getElementById('docsText').textContent = docsText;
         document.getElementById('docsOverlay').style.display = 'flex';
@@ -703,7 +708,7 @@
       document.getElementById('micButton').addEventListener('click', () => {
         if (uiState.isListening) { stopListening(); return; }
         if (!ensureRecognition()) return;
-        currentExpectedIntent = null;
+        // The recognizer's onresult handler checks the current state
         startListening();
       });
 
@@ -743,7 +748,7 @@
 
       // Initialise
       updateUIState();
-      appendSystemEvent('Aether ready. Tap the red mic or run the full demo.');
+      appendSystemEvent('Aether ready. Tap the red mic – verification flow now works correctly.');
     })();
   </script>
 </body>
