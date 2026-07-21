@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Aether – Conversation State Engine (Corrected Demo)</title>
+  <title>Aether – Complete Conversation State Engine</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -119,7 +119,6 @@
       <div class="pipeline-stage" id="stageResponse"><div class="stage-dot"></div> Response</div>
     </div>
 
-    <!-- Chat area (only user and assistant messages) -->
     <div class="chat-area" id="chatArea"></div>
 
     <div class="input-area">
@@ -151,7 +150,7 @@
           <label><input type="checkbox" id="autoCycleCheckbox" checked> Auto Cycle Speakers</label>
           <span id="currentSimSpeakerDisplay" style="color:#f5a623;"></span>
           <button id="simInjectBtn">Inject Observation</button>
-          <button id="runTestsBtn">Run Tests</button>
+          <button id="runFullDemoBtn">Run Full Demo (Alex → Unknown → Chris)</button>
           <button id="docsBtn">? Docs</button>
         </div>
       </details>
@@ -186,10 +185,6 @@
     <div class="state-section">
       <h3>System Events (Telemetry)</h3>
       <div class="system-log" id="systemEventsLog"></div>
-    </div>
-    <div class="state-section test-panel">
-      <h3>Diagnostics</h3>
-      <div class="system-log" id="testLog" style="max-height: 200px;"></div>
     </div>
   </div>
 
@@ -233,14 +228,14 @@
         speechSynthesisEnabled: true,
         simulationSpeaker: 'alex',
         autoCycle: true,
-        autoCycleList: ['alex', 'bella', 'unknown_med', 'alex', 'unknown_low'], // demo sequence
+        autoCycleList: ['alex', 'bella', 'unknown_med', 'alex', 'unknown_low'],
         autoCycleIndex: 0
       };
 
       // ====================== HELPER ======================
       function createDecision(type, payload = null) { return { type, payload }; }
 
-      // ====================== PURE STATE MACHINE (unchanged logic) ======================
+      // ====================== PURE STATE MACHINE ======================
       function transition(session, event, participants, voices) {
         const newSession = { ...session };
         newSession.previousState = session.currentState;
@@ -353,7 +348,7 @@
 
       function randomColor() { const hue = Math.floor(Math.random() * 360); return `hsl(${hue}, 70%, 65%)`; }
 
-      // ====================== LLM ADAPTER ======================
+      // ====================== INTENT LLM (structured parsing, swappable) ======================
       function interpretUserIntent(text, expectedType) {
         const lower = text.toLowerCase();
         if (expectedType === 'VERIFICATION') {
@@ -368,21 +363,22 @@
         return { chatMessage: text };
       }
 
-      // ====================== ASSISTANT REPLY GENERATOR (non‑echo) ======================
-      function generateAssistantReply(userMsg) {
-        const lower = userMsg.toLowerCase();
-        if (lower.includes('how are you')) return "I'm doing well, thank you! What would you like to talk about?";
-        if (lower.includes('hello') || lower.includes('hi')) return "Hello! It's good to hear from you.";
-        if (lower.includes('name')) return "I'm Aether, your conversation assistant.";
-        if (lower.includes('weather')) return "I'm not connected to a weather service, but it's always a good day for a chat.";
-        const replies = [
-          "That's interesting. Tell me more.",
-          "I see. How does that make you feel?",
-          "Thanks for sharing. What else is on your mind?",
-          "I appreciate your perspective.",
-          "Let's explore that further."
+      // ====================== CONVERSATIONAL LLM ADAPTER (replace with real API) ======================
+      function generateConversationalReply(context) {
+        // context = { speakerName, message, participants, state }
+        const msg = context.message.toLowerCase();
+        const speaker = context.speakerName || 'friend';
+        if (msg.includes('how are you')) return `I'm doing well, ${speaker}. How are you today?`;
+        if (msg.includes('hello') || msg.includes('hi')) return `Hello, ${speaker}! Nice to hear your voice.`;
+        if (msg.includes('dinner')) return `Great question, ${speaker}. How about a stir-fry with whatever vegetables you have?`;
+        if (msg.includes('name')) return `My name is Aether, ${speaker}. I'm your conversational AI.`;
+        const phrases = [
+          `That's really interesting, ${speaker}. What else is on your mind?`,
+          `Thanks for sharing, ${speaker}. Tell me more.`,
+          `I see, ${speaker}. How does that make you feel?`,
+          `Glad you brought that up, ${speaker}. Let's explore it.`
         ];
-        return replies[Math.floor(Math.random() * replies.length)];
+        return phrases[Math.floor(Math.random() * phrases.length)];
       }
 
       // ====================== SIMULATED ACOUSTIC PROFILER ======================
@@ -394,12 +390,9 @@
       }
 
       function getCurrentSimSpeaker() {
-        if (uiState.autoCycle) {
-          // advance when needed, but return the current one without side effect here; side effect in click
-          // we'll advance only on mic tap, not on display
-          return uiState.autoCycleList[uiState.autoCycleIndex % uiState.autoCycleList.length];
-        }
-        return uiState.simulationSpeaker;
+        return uiState.autoCycle
+          ? uiState.autoCycleList[uiState.autoCycleIndex % uiState.autoCycleList.length]
+          : uiState.simulationSpeaker;
       }
 
       function runAcousticProfiler(speakerId) {
@@ -425,7 +418,7 @@
         if (!result.valid) appendSystemEvent('Transition was invalid.');
       }
 
-      // ====================== CHAT MESSAGES (pure conversation) ======================
+      // ====================== UI MESSAGES (strict separation) ======================
       function appendUserMessage(text, speakerName = 'You', color = '#ccc') {
         const area = document.getElementById('chatArea');
         const div = document.createElement('div');
@@ -457,24 +450,16 @@
       }
 
       function appendSystemEvent(msg) {
-        // Only in right panel, NEVER in chat
         const log = document.getElementById('systemEventsLog');
         const div = document.createElement('div');
         div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
         log.appendChild(div);
         log.scrollTop = log.scrollHeight;
-        // Also to diagnostics if verbose
-        const diag = document.getElementById('testLog');
-        const ddiv = document.createElement('div');
-        ddiv.textContent = `[EVENT] ${msg}`;
-        diag.appendChild(ddiv);
-        diag.scrollTop = diag.scrollHeight;
       }
 
       function handleDecision(decision) {
         const prompt = getPromptForDecision(decision);
         if (prompt) {
-          // Assistant question – appears in chat
           appendAssistantMessage(prompt);
           if (uiState.mode === 'voice') {
             speakText(prompt).then(() => {
@@ -485,7 +470,15 @@
         } else if (decision.type === 'CONTINUE' || decision.type === 'RESUME' || decision.type === 'CREATE_PARTICIPANT') {
           const chatMsg = decision.payload?.chatMessage;
           if (chatMsg) {
-            const reply = generateAssistantReply(chatMsg);
+            const speaker = session.activeSpeaker
+              ? participantRegistry.get(session.activeSpeaker)?.name || 'friend'
+              : 'friend';
+            const reply = generateConversationalReply({
+              speakerName: speaker,
+              message: chatMsg,
+              participants: Array.from(participantRegistry.values()).map(p => p.name),
+              state: session.currentState
+            });
             appendAssistantMessage(reply);
             if (uiState.mode === 'voice') speakText(reply);
           }
@@ -501,7 +494,7 @@
         }
       }
 
-      // ====================== UI STATE RENDERING ======================
+      // ====================== UI STATE UPDATE ======================
       function updateUIState() {
         document.getElementById('prevState').textContent = session.previousState || '—';
         document.getElementById('currentState').textContent = session.currentState;
@@ -516,9 +509,7 @@
         document.getElementById('pendingParticipant').textContent = session.pendingParticipant
           ? JSON.stringify(session.pendingParticipant) : '—';
         renderParticipantList(); renderVoiceRegistry(); renderTransitionHistory();
-        // Display current simulated speaker
-        const curSpeaker = getCurrentSimSpeaker();
-        document.getElementById('currentSimSpeakerDisplay').textContent = `Current sim speaker: ${curSpeaker}`;
+        document.getElementById('currentSimSpeakerDisplay').textContent = `Sim speaker: ${getCurrentSimSpeaker()}`;
       }
 
       function renderParticipantList() {
@@ -667,27 +658,31 @@
         });
       }
 
-      // ====================== TEST SCENARIOS (brief) ======================
-      function runTestScenarios() {
-        appendSystemEvent('--- Running Test Scenarios ---');
-        // Abbreviated test sequence to verify state machine logic.
+      // ====================== DEMO: Full Flow ======================
+      function runFullDemo() {
+        // 1. Alex speaks
         let res = transition(session, { type: 'ACOUSTIC_OBSERVATION', payload: runAcousticProfiler('alex') }, participantRegistry, voiceRegistry);
         applyTransitionResult(res);
-        appendSystemEvent(`Test: Alex recognised -> state ${session.currentState}`);
+        // Simulate user says "Hello"
+        res = transition(session, { type: 'USER_INTENT', payload: { intent: { chatMessage: 'Hello' } } }, participantRegistry, voiceRegistry);
+        applyTransitionResult(res);
+        // 2. Bella speaks (unknown voice)
         res = transition(session, { type: 'ACOUSTIC_OBSERVATION', payload: runAcousticProfiler('unknown_med') }, participantRegistry, voiceRegistry);
         applyTransitionResult(res);
-        appendSystemEvent(`Test: Unknown medium -> VERIFYING`);
-        let intent = interpretUserIntent("new", 'VERIFICATION');
-        res = transition(session, { type: 'USER_INTENT', payload: { intent } }, participantRegistry, voiceRegistry);
+        // 3. User verification: "new"
+        res = transition(session, { type: 'USER_INTENT', payload: { intent: { verificationResult: 'NEW_PARTICIPANT' } } }, participantRegistry, voiceRegistry);
         applyTransitionResult(res);
-        intent = interpretUserIntent("Chris", 'NAME');
-        res = transition(session, { type: 'USER_INTENT', payload: { intent } }, participantRegistry, voiceRegistry);
+        // 4. Provide name
+        res = transition(session, { type: 'USER_INTENT', payload: { intent: { name: 'Chris' } } }, participantRegistry, voiceRegistry);
         applyTransitionResult(res);
-        appendSystemEvent(`Test: New participant created, state ${session.currentState}`);
+        // 5. Chris speaks again
+        res = transition(session, { type: 'USER_INTENT', payload: { intent: { chatMessage: 'How are you?' } } }, participantRegistry, voiceRegistry);
+        applyTransitionResult(res);
+        appendSystemEvent('Full demo executed: Alex → Unknown → Chris created.');
       }
 
       // ====================== DOCS ======================
-      const docsText = `Aether CSE – Demo Corrections\n\n- Chat shows only user/assistant messages.\n- System events are in the right panel.\n- Assistant generates genuine replies, not echoes.\n- Auto speaker cycle demonstrates voice change detection.\n- Tap the mic to start; the simulated speaker changes each tap.`;
+      const docsText = `Aether – Complete Conversation State Engine\n\n- Separated intent LLM (interpretUserIntent) and conversational LLM (generateConversationalReply).\n- CSE only emits decisions; natural language is produced by the conversational adapter.\n- System events never appear in chat.\n- Auto speaker cycling enables demonstration of verification flow.\n- Click 'Run Full Demo' to see Alex → unknown → Chris.`;
       function showDocs() {
         document.getElementById('docsText').textContent = docsText;
         document.getElementById('docsOverlay').style.display = 'flex';
@@ -730,10 +725,7 @@
 
       document.getElementById('autoCycleCheckbox').addEventListener('change', (e) => {
         uiState.autoCycle = e.target.checked;
-        if (uiState.autoCycle) {
-          // reset index to start
-          uiState.autoCycleIndex = 0;
-        }
+        if (uiState.autoCycle) uiState.autoCycleIndex = 0;
         updateUIState();
       });
 
@@ -745,13 +737,13 @@
         updateUIState();
       });
 
-      document.getElementById('runTestsBtn').addEventListener('click', runTestScenarios);
+      document.getElementById('runFullDemoBtn').addEventListener('click', runFullDemo);
       document.getElementById('docsBtn').addEventListener('click', showDocs);
       document.getElementById('closeDocsBtn').addEventListener('click', hideDocs);
 
       // Initialise
       updateUIState();
-      appendSystemEvent('Aether CSE ready. Auto speaker cycling on – tap the red mic to start.');
+      appendSystemEvent('Aether ready. Tap the red mic or run the full demo.');
     })();
   </script>
 </body>
